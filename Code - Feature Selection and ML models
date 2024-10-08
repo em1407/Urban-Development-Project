@@ -1,0 +1,1316 @@
+Libraries setup
+```{r 1, include=FALSE}
+
+library(openxlsx)
+library(readxl)
+library(dplyr)
+library(readxl)
+library(corrplot)
+library(car)
+library(randomForest)
+library(caret)
+library(e1071)
+library(MLmetrics)
+library(glmnet)
+library(gbm)
+library(faux)
+library(DataExplorer)
+library(ggplot2)
+library(RANN)
+library(VIM)
+library(ggdendro)
+```
+
+
+Data engineering - creating meaningful features
+[Done manually in excel; check file 'denhaagVariables' to see modifications]
+
+
+Raw datasets - correlation matrices
+```{r 2, include=FALSE}
+# SET P-VALUE THRESHOLD; DEFAULT IS 0.05
+data <-read.xlsx("source data/source_data_hague.xlsx", rowNames = TRUE)
+
+# Ensure data columns are numeric
+for (i in 1:ncol(data)) {
+  data[, i] <- as.numeric(data[, i])
+}
+
+# Initialize correlations, p-values, and significant correlations data frames
+correlations <- data.frame(matrix(NA, nrow = ncol(data), ncol = ncol(data)))
+row.names(correlations) <- colnames(data)
+colnames(correlations) <- row.names(correlations)
+p_values <- correlations
+significant_correlations <- correlations
+
+# Compute the correlation matrix
+for (i in 1:ncol(data)) {
+  for (z in 1:ncol(data)) {
+    correlations[i,z] <- cor(data[, i], data[, z], method = "kendall", use = "pairwise.complete.obs")
+  }
+}
+
+# Extract p values
+for (i in 1:ncol(correlations)) {
+  for (j in 1:ncol(correlations)) {
+    if (i != j) { # if not in diagonal
+      # Kendall correlation test
+      test_result <- try(cor.test(correlations[, i], correlations[, j], method = "kendall"), silent = TRUE)
+      if (!inherits(test_result, "try-error")) { # if no error
+        p_values[i, j] <- test_result$p.value
+      } else { # if error make pvalue 1, it will be excluded later
+        p_values[i, j] <- 1
+      }
+    } else { # if in diagonal
+      p_values[i, j] <- 0
+    }
+  }
+}
+
+
+# SET P-VALUE THRESHOLD TO GET SIGNIFICANT CORRELATIONS
+threshold_pvalue <- 0.05
+# SET P-VALUE THRESHOLD TO GET SIGNIFICANT CORRELATIONS
+
+# Pass only the significant correlations to the new table based on the threshold
+for (i in 1:nrow(correlations)) {
+  for (z in 1:nrow(correlations)) {
+    if (p_values[i,z] < threshold_pvalue) {
+      significant_correlations[i,z] <- correlations[i,z] 
+    } else {
+      significant_correlations[i,z] <- NA
+    }
+  }
+}
+
+# Replace NAs with 0s, they will be excluded later
+significant_correlations[is.na(significant_correlations)] <- 0
+
+# Store the correlation matrix with the significant correlations
+savepath2 <- "intermediary files/haag2021cor.xlsx"
+write.xlsx(significant_correlations, savepath2, rowNames = TRUE)
+
+# Check dataframe: significant_correlations
+```
+
+
+Filtering for features that correlate strongly with each major indicator
+```{r 3}
+# Read correlation matrix with significant correlations
+significant_correlations <- read.xlsx("intermediary files/haag2021cor.xlsx", rowNames = TRUE)
+
+# Keeping only the correlations above the threshold in the new table: cormatrix_refined
+threshold <- 0.2 # Insignificant correlations are 0 so they are below threshold
+
+# Filter based on columns
+filtered_matrix <- significant_correlations[abs(significant_correlations$Social_cohesion_21) >= threshold, ]
+# Transpose
+transposed_matrix <- t(filtered_matrix)
+transposed_matrix <- as.data.frame(transposed_matrix)
+# Filter columns again
+cormatrix_refined <- transposed_matrix[abs(transposed_matrix$Social_cohesion_21) >= threshold, ]
+
+
+# Find the major indicator index
+major_indicator_index <- which(colnames(cormatrix_refined) == "Social_cohesion_21")
+# Create data frame with the features with strong correlations with the major indicator
+refined_features <- as.data.frame(cormatrix_refined[major_indicator_index])
+rownames(refined_features) <- rownames(cormatrix_refined)
+
+# Correlation matrix with strong correlations
+savepath <- "intermediary files/Social_cohesion_21strongcorrelations.xlsx"
+# Variable that correlate strongly with major indicator (dulicate for later use)
+savepath5 <- "intermediary files/Social_cohesion_21strongVariables.xlsx"
+savepath11 <- "intermediary files/Social_cohesion_21Variables.xlsx"
+
+write.xlsx(cormatrix_refined, savepath, rowNames = TRUE)
+write.xlsx(refined_features, savepath5, rowNames = TRUE)
+write.xlsx(refined_features, savepath11, rowNames = TRUE)
+
+
+# Distribution of major indicator
+hist(data$Social_cohesion_21, breaks = 20, main = "Histogram of Ages", xlab = "Age", col = "gray", xlim = c(0, 10))
+
+# Check dataframe: refined_features
+```
+
+
+OPTIONAL: Hierarchical clustering on correlation matrices
+```{r 4, include=FALSE}
+# GIVE NUMBER OF CLUSTERS. OPTIONAL: LOOK AT THE GRAPH TO USE THE ELBOW RULE.
+
+
+# correlation matrix with variables withstrong correlations with major indicator
+getcormatrix <- "intermediary files/Social_cohesion_21strongcorrelations.xlsx"
+cormatrix_refined <- read.xlsx(getcormatrix, rowNames = TRUE)
+
+
+# Making the digonal values 0
+cormatrix_refined[abs(cormatrix_refined) == 1] <- 0
+# Compute the distance matrix using Euclidean distance
+dist_matrix <- dist(cormatrix_refined, method = "euclidean")
+# Perform hierarchical clustering
+hc <- hclust(dist_matrix, method = "average")
+# Plot the dendrogram
+plot(hc, labels = rownames(cormatrix_refined), main = "Hierarchical Clustering Dendrogram", sub = "", xlab = "")
+
+
+
+# Get the heights at which merges occur to choose number of clusters
+merge_heights <- hc$height
+# Plot the heights to find the "elbow" to choose number of clusters
+plot(merge_heights, type = 'b', xlab = "Number of merges", ylab = "Merge height",
+     main = "Elbow Plot")
+
+
+
+
+# CHOOSE NUMBER OF CLUSTERS
+k <- 20
+# CHOOSE NUMBER OF CLUSTERS
+
+
+
+
+clusters <- cutree(hc, k = k)
+# Create data frame with clusters
+clusters <- data.frame(row.names = row.names(cormatrix_refined), cluster = clusters)
+# Descending order
+clusters <- clusters %>% arrange(desc(cluster))
+# Check data frame clusters
+
+
+
+# GIVE TARGET VARIABLE
+target_variable <- cormatrix_refined$Social_cohesion_21
+# GIVE TARGET VARIABLE
+
+
+# Create a data frame with variables, cluster numbers, and correlation coefficients with major indicator
+# Add the correlation coefficient with the target variable, as a vector, to the clusters data frmae
+correlation <- as.numeric(vector())
+for (i in 1:nrow(cormatrix_refined)) { # Correlation matrix rows
+  for (z in 1:nrow(clusters)) { # Clusters data frame rows
+    if (row.names(cormatrix_refined)[i] == row.names(clusters)[z]) { # Find matches and pass the coefficient
+    correlation[z] <- round(target_variable[i], 2)
+    }
+  } 
+}
+clusters$correlation <- correlation
+
+# Store clusters data frame
+storepath <- "intermediary files/Social_cohesion_21Clusters2.xlsx"
+write.xlsx(clusters, storepath, rowNames = TRUE)
+
+# Check dataframe: clusters
+```
+
+
+OPTIONAL: Extracting vif valeus from clusters
+```{r 5}
+# Read clusters, strong correlations matrix and full data
+variables <- "intermediary files/Social_cohesion_21Clusters.xlsx"
+correlations_matrix <- "intermediary files/Social_cohesion_21strongcorrelations.xlsx"
+citydata <- "source data/source_data_hague.xlsx"
+
+features <- read.xlsx(variables, colNames = TRUE)
+correlationsfull <- read.xlsx(correlations_matrix, rowNames = TRUE)
+datafull <- read.xlsx(citydata, rowNames = TRUE)
+
+# Refine full data to only for the selected variables that correlate strongly with the major indicator
+column_indices <- match(features[,1], names(datafull))
+data <- datafull[, column_indices]
+
+
+# CHOOSE MAJOR INDICATOR
+target_variable <- "Social_cohesion_21"
+# CHOOSE MAJOR INDICATOR
+
+# Initialize list
+vif_values <- list()
+
+# Get number of clusters
+number_of_clusters_in_dataset <- max(features$cluster)
+
+# Iterate over clusters to split the data, run regressions, and get the vifs
+for (cluster_number in 1:number_of_clusters_in_dataset) {
+  
+  # Find the right indeces to split data by cluster and add the major indicator, if it is not already included in the cluster
+  cluster_indices <- which(features$cluster == cluster_number)
+  target_variable_index <- which(features[,1] == target_variable)
+  logical <- 0
+  # Flag will become 1 for the one cluster that included the major indicators so that we won't add it again 
+  for (index in 1:length(cluster_indices)) {
+    if (cluster_indices[index] == target_variable_index) {
+      logical <- logical + 1
+    } 
+  }
+  
+  # If flag = 0 then add the index of the major indicator
+  if (logical == 1) {
+    data_indeces <- cluster_indices
+  } else {
+    data_indeces <- c(cluster_indices, target_variable_index)
+  }
+  
+  data_cluster <- data[, data_indeces]
+  # data_cluster is the data for the variables in the current cluster and the target variable.
+  
+  
+  # regression will only work with at least 1 indipendent variable and the major indicator
+  if (length(data_indeces) > 2) {
+    # Fit a linear regression model
+    lm_model <- lm(data_cluster$Social_cohesion_21 ~., data = data_cluster)
+    
+    # Calculate VIF
+    vif_values[[cluster_number]] <- vif(lm_model)
+    
+  } else { # if cluster has only 1 variable
+    vif_values[[cluster_number]] <- "Too small cluster, buddy!"
+  }
+}
+
+# Initialize aggregate vif data frame for all clusters/variables
+vif_values_df <- data.frame()
+
+for (element in 1:number_of_clusters_in_dataset) { # iterate over clusters
+  # Convert current vif list to a data frame
+  vif_values_current <- data.frame(vif_values[[element]])
+  vif_values_current$cluster <- element
+  # column names
+  colnames(vif_values_current) <- c("vif_value", "cluster")
+  
+  
+  # add current vifs to the data frame with the previous ones with every iteration
+  vif_values_df <- rbind(vif_values_df, vif_values_current)
+  
+}
+# Make them pretty
+vif_values_df$vif_value <- as.numeric(vif_values_df$vif_value)
+vif_values_df$vif_value <- round(vif_values_df$vif_value, 1)
+# Sort out NAs
+vif_values_df <- vif_values_df[!is.na(vif_values_df$vif_value), ]
+
+# Save vifs
+savepath <- "intermediary files/Social_cohesion_21VIF.xlsx"
+write.xlsx(vif_values_df, savepath, rowNames = TRUE)
+
+# Check dataframe: vif_values_df
+```
+
+
+Handling Missing Values
+```{r 6}
+# Get dirty data
+excelwithallvariables <- "source data/source_data_hague.xlsx"
+data <-read.xlsx(excelwithallvariables, rowNames = TRUE)
+
+
+# Ensure columns are numeric
+for (i in 1:ncol(data)) {
+  data[, i] <- as.numeric(data[, i])
+}
+
+# Create a function that checks if a column contains integers
+are_all_integers <- function(x) {
+  all(x == floor(x), na.rm = TRUE)
+}
+# The NAs must be replaced with integers for the features that contain only integer values. This ensure realistic replacements
+
+
+# Create outout data frame
+data_clean <- data
+
+# If skewness in a column is < 0.5 then it replaces NAs with the mean of the column. If the variable contains integers the it rounds the mean to be an integer.
+# If skewness in a column is >= 0.5 and < 1 then it replaces NAs with the mean of the k-NN (k is set to 5) of the column. If the variable contains integers the it rounds the k-NN mean to be an integer.
+# If skewness in a column is > 1 then it replaces NAs with the median of the column. If the variable contains integers the it rounds the median to be an integer.
+# When a column has values that are all the same 1. it souldn't, 2. instead of NA the skewness is treated like it's 0.
+
+# Search each column for it's skewness, and then for being an integer variable
+for (i in 1:ncol(data)) {
+  # To avoid errors for variables with 0 skewness fill in 0 manually
+  skewness_current <- skewness(data[,i], na.rm = TRUE)
+  if (is.na(skewness_current) == TRUE) {
+    skewness_current <- 0
+  }
+  if (abs(skewness_current) < 0.5) { # Low skewness
+    if (are_all_integers(data[,i]) == TRUE) { # Integer values
+      # Replace NAs with integer mean
+      data_clean[,i][is.na(data[,i])] <- round(mean(data[,i]))
+    } else {
+      # Replace NAs with mean
+      data_clean[,i][is.na(data[,i])] <- mean(data[,i], na.rm = TRUE)
+    }
+    
+  } else if (abs(skewness_current) < 1) { # Medium skewness
+    z <- as.numeric(i) # corret variable index type to avoid error
+    if (are_all_integers(data[,i]) == TRUE) {
+      # Replace NAs with integer 5-NN mean
+      data_clean[,i] <- round(kNN(data, variable = z, k = 5)[,i])
+    } else {
+      # Replace NAs with 5-NN mean
+      data_clean[,i] <- kNN(data, variable = z, k = 5)[,i]
+    }
+  } else {
+    if (are_all_integers(data[,i]) == TRUE) { # High skewness
+      # Replace NAs with integer medium
+      data_clean[,i][is.na(data[,i])] <- round(median(data[,i], na.rm = TRUE))
+    } else {
+      # Replace NAs with medium
+      data_clean[,i][is.na(data[,i])] <- median(data[,i], na.rm = TRUE)
+    }
+  }  
+}
+
+
+# Save clean dataset
+savepath <- "intermediary files/haag2021clean.xlsx"
+write.xlsx(data_clean, savepath, rowNames = TRUE)
+
+
+# Check statistics and distribution of target variable to decide what model to use.
+data_clean <-read.xlsx(savepath, rowNames = TRUE)
+
+# Summary statistics for numerical data
+summary(data_clean$Social_cohesion_21)
+# Histogram target variable
+hist(data_clean$Social_cohesion_21, breaks = 20, main = "Major Indicator", xlab = "Target Variable", col = "gray", xlim = c(0, 10)) # Adjust xlim with both scale edges
+# Skewness of target variable
+skewness(data_clean$Social_cohesion_21, na.rm = TRUE)
+
+# Compare dataframes: data_clean , datafull
+```
+
+
+THE HAGUE - FEATURE SELECTION 1/2
+```{r 7}
+# FOR THE FIRST RUN NUMBER SHOULD BE EQUIAL TO LENGTH OF FEATURES TO INCLUDE ALL VARIABLES. Then you may lower the number to take the top informative features and rerun the code chunk.
+number_of_variables <- 155
+
+
+
+# Read variables that correlate strongly with major indicator and read full data
+variables <- "intermediary files/Social_cohesion_21strongVariables.xlsx"
+citydata <- "intermediary files/haag2021clean.xlsx"
+features <- read.xlsx(variables, colNames = TRUE)
+colnames(features)[1] <- "variable"
+datafull <- read.xlsx(citydata, rowNames = TRUE)
+# Refine full data only for the selected variables
+column_indices <- match(features$variable, names(datafull))
+data_fixed <- datafull[, column_indices]
+length(column_indices) # To help decide about the right number of variables
+
+# Subset data
+subset_indexes <- c(1:number_of_variables)
+data_fixed <- data_fixed[, subset_indexes]
+
+
+
+# RANDOM FOREST
+# Initialize metric vector for LOOCV. Their means will be the final metric.
+predictionsrf <- vector("numeric", length = nrow(data_fixed))
+accuraciesrf <- vector("numeric", length = nrow(data_fixed))
+mserf <- vector("numeric", length = nrow(data_fixed))
+maerf <- vector("numeric", length = nrow(data_fixed))
+maperf <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  # Create the training set by excluding the ith observation
+  train_data <- data_fixed[-i, ]
+  
+  # Create the test set with only the ith observation
+  test_data <- data_fixed[i, ]
+  
+  # Fit a Random Forest model 
+  rffeatures <- randomForest(train_data$Social_cohesion_21 ~ ., data = train_data, ntree = 500, mtry = 5, importance = TRUE)
+  
+  if (i == 1) { # Initialize importance matrix
+    importance_matrix <- as.numeric(matrix(NA, nrow = ncol(data_fixed) - 1, ncol = 1))
+    # Store feature importance
+    importance_matrix <- importance(rffeatures)[,1]
+  } else {
+    # Store recurrent feature importances
+    importance_matrix <- cbind(importance_matrix, importance(rffeatures)[,1])
+  }
+  
+  # Make predictions on train dataset
+  predictionsrf[i] <- predict(rffeatures, test_data, type = "response")
+  
+  # MSE
+  mserf[i] <- (predictionsrf[i] - test_data$Social_cohesion_21)^2
+  
+  # MSE
+  maerf[i] <- MAE(predictionsrf[i], test_data$Social_cohesion_21)
+  
+  # MAPE
+  maperf[i] <- mean(abs((test_data$Social_cohesion_21 - predictionsrf[i]) / test_data$Social_cohesion_21) * 100)
+  
+  # Accuracy on train set
+  accuraciesrf[i] <- Accuracy(round(predictionsrf[i],1), round(test_data$Social_cohesion_21, 1))
+}
+
+# Handle Metrics - take their means
+importances <- apply(importance_matrix, 1, mean)
+importances <- data.frame(importance = importances)
+importances <- importances %>% arrange(desc(importance))
+accuracyrf <- mean(accuraciesrf)
+mserf <- mean(mserf)
+maerf <- mean(maerf)
+maperf <- mean(maperf)
+# Calculate Rsquared values
+rsquaredrf <- 1 - sum((data_fixed$Social_cohesion_21 - predictionsrf)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredrfAdj <- 1 - ((1 - rsquaredrf) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+
+# Show metrics
+importances
+print(paste(round(accuracyrf, 2), "Accuracy RF"))
+print(paste(round(mserf, 5), "MSE RF"))
+print(paste(round(maerf, 5), "MAE RF"))
+print(paste(round(maperf, 5), "MAPE RF"))
+print(paste(round(rsquaredrf, 3), "R^2 RF"))
+print(paste(round(rsquaredrfAdj, 3), "R^2 Adjusted RF"))
+
+# Plot importance
+par(mar=c(5, 25, 4, 2) + 0.1)
+importances_reversed <- importances %>% arrange(importance)
+barplot(importances_reversed$importance, names.arg = rownames(importances_reversed), main = "Importnace by Predictor", xlab = "Predictor", ylab = "Importance", horiz = TRUE, col = "skyblue", las = 1, cex.names=1.0)
+
+
+# Metrics data frame
+rfmetrics <- data.frame(
+  MAE = c(round(maerf, 3)),
+  MSE = c(round(mserf, 5)),
+  MAPE = c(round(maperf, 5)),
+  R_squared = c(round(rsquaredrf, 3)),
+  R_squared_adjusted = c(round(rsquaredrfAdj, 3)),
+  row.names = c("RF metrics")
+)
+
+# Subset data - take the features that you used in the model. When you rerun the code you will gradually lower the number of features and keep the top picks based on the results
+column_refinement <- match(rownames(importances), names(datafull))
+data_fixed <- datafull[, column_refinement]
+# Add target variable to the set
+data_fixed <- cbind(datafull$Social_cohesion_21, datafull[, column_refinement])
+colnames(data_fixed)[1] <- "Social_cohesion_21"
+
+# Store the subset variables to be used again
+variables <- as.data.frame(c("Variables based on random forest importances", colnames(datafull)[column_refinement]), col.names = "variable")
+savepath3 <- "Social_cohesion_21Variables.xlsx"
+# Store importances
+savepath12 <- "Social_cohesion_21Importances.xlsx"
+
+write.xlsx(variables, savepath3, rowNames = FALSE, colNames = FALSE)
+write.xlsx(importances, savepath12, rowNames = TRUE, colNames = TRUE)
+
+
+# Check dataframes: importances, rfmetrics
+# You can now iterate with less features
+```
+
+
+THE HAGUE - Using RFE to add additional meaningful (urban) features in our feature selection
+```{r 8, warning=FALSE}
+# Set import and export paths
+file <- "intermediary files/haag2021clean.xlsx"
+saveselectedvars <- "intermediary files/Social_cohesion_21RFEvariables.xlsx"
+saveimportances <- "intermediary files/Social_cohesion_21RFEimportances.xlsx"
+
+# CHOOSE TARGET VARIABLE
+target_variable <- "Social_cohesion_21"
+
+
+# Den Haag major indicators list; it will be excluded from the rfe formula
+major_indicators <- c("percentage_people_with_good_or_very_good_general_health_20", "percentage_who_feel_seriously_lonely_20", "Pleasant_living_score_21", "safety_score_21", "Social_cohesion_21")
+
+
+# Import the dataset
+data <- read.xlsx(file, rowNames = TRUE, colNames = TRUE)
+
+# Separate target indicator. Create bins to run RFE
+target_index <- match(target_variable, names(data))
+indicator <- data[, target_index]
+
+# Check distribution before splitting in bins just in case something is irregular
+hist(indicator, breaks = 20, main = "Major Indicator", xlab = "Target Variable", col = "gray", xlim = c(0, 10)) # Adjust xlim with both scale edges
+
+
+# Creating bins
+quantile_breaks <- quantile(indicator, probs = seq(0, 1, by = 0.2))
+
+# Cutting the data into these quantiles
+indicator_categories <- cut(indicator, breaks = quantile_breaks, include.lowest = TRUE, labels = FALSE)
+
+
+
+data <- data %>%
+  # Save categorical features as factors
+  mutate_at(colnames(data), 
+            as.factor) %>%
+  # Center and scale numeric features
+  mutate_if(is.numeric, scale)
+
+
+# Define the control using a random forest selection function
+control <- rfeControl(functions = rfFuncs, # random forest
+                      method = "repeatedcv", # repeated cv
+                      repeats = 5, # number of repeats
+                      number = 10) # number of folds
+
+
+# Features without major indicators. They will not be used in the models.
+column_indices <- match(major_indicators, names(data))
+x <- as.data.frame(data[, -column_indices])
+# Target variable bins as target variable
+y <- indicator_categories
+
+# Training: 80%; Test: 20%
+set.seed(2021)
+inTrain <- createDataPartition(y, p = .70, list = FALSE)
+
+x_train <- x[ inTrain, ]
+x_test  <- x[-inTrain, ]
+
+y_train <- y[ inTrain]
+y_test  <- y[-inTrain]
+
+# Run RFE
+result_rfe1 <- rfe(x = x_train, 
+                   y = y_train, 
+                   sizes = c(1:15),
+                   rfeControl = control)
+
+# Print the results
+result_rfe1
+
+# Print the selected features
+selected_predictors <- as.data.frame(predictors(result_rfe1))
+selected_predictors[nrow(selected_predictors)+1,] <- target_variable
+
+
+# Get top 50 informative feature importances. We won't need a lot of features for our dataset size 
+varimp_data <- data.frame(feature = row.names(varImp(result_rfe1))[1:50],
+                          importance = varImp(result_rfe1)[1:50, 1])
+# Check top 50 importances
+varimp_data
+
+# Plot importances
+ggplot(data = varimp_data, 
+       aes(x = reorder(feature, -importance), y = importance, fill = feature)) +
+  geom_bar(stat="identity") + labs(x = "Features", y = "Variable Importance") + 
+  geom_text(aes(label = round(importance, 2)), vjust=1.6, color="white", size=4) + 
+  theme_bw() + theme(legend.position = "none")
+
+# Post prediction
+postResample(predict(result_rfe1, x_test), y_test)
+
+# Variables the model automatically suggests. We will choose manually from the top 50 though
+selected_predictors
+
+
+# Save automatically suggested variables and top 50 importances for manual revision
+write.xlsx(selected_predictors, saveselectedvars, colNames = FALSE)
+write.xlsx(varimp_data, saveimportances, colNames = TRUE, row.nmaes = FALSE)
+
+# Check dataframes: selected_predictors, varimp_data
+```
+
+
+OPTIONAL: FINAL FEATURE SELECTION 2/2
+After we add the urban features to an excel with the rest of the features we run random forests to keep only important urban features and examine the optimal number of features based on their importances. This step is already completed and the final features are already stored in a new folder.
+```{r 9}
+# SAME WITH CHUNK CODE 7. 
+# The difference is that we manually selected variables again based on chunk 7 and chunk 8 outputs. Again, we optimize the number of variables with the new variables list.
+# For the first run, the number of variables should be equal to the number of features we import.
+number_of_variables <- 16
+
+
+# Read variables and read full data
+variables <- "intermediary files/Social_cohesion_21_FinalVariables.xlsx"
+citydata <- "intermediary files/haag2021clean.xlsx"
+features <- read.xlsx(variables, colNames = FALSE)
+datafull <- read.xlsx(citydata, rowNames = TRUE)
+# Refine full data to only for the selected variables
+column_indices <- match(features$X1, names(datafull))
+data_fixed <- datafull[, column_indices]
+length(column_indices)
+
+subset_indexes <- c(1:number_of_variables)
+data_fixed <- data_fixed[, subset_indexes]
+
+
+
+# RANDOM FOREST
+# Initialize an empty vector to store prediction errors for LOOCV
+predictionsrf <- vector("numeric", length = nrow(data_fixed))
+accuraciesrf <- vector("numeric", length = nrow(data_fixed))
+mserf <- vector("numeric", length = nrow(data_fixed))
+maerf <- vector("numeric", length = nrow(data_fixed))
+maperf <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  # Create the training set by excluding the ith observation
+  train_data <- data_fixed[-i, ]
+  
+  # Create the test set with only the ith observation
+  test_data <- data_fixed[i, ]
+  
+  # Fit a Random Forest model 
+  rffeatures <- randomForest(train_data$Social_cohesion_21 ~ ., data = train_data, ntree = 1000, mtry = 5, importance = TRUE)
+  
+  if (i == 1) {
+    importance_matrix <- as.numeric(matrix(NA, nrow = ncol(data_fixed) - 1, ncol = 2))
+    # Store feature importance
+    importance_matrix <- importance(rffeatures)[,1]
+  } else {
+    # Store feature importance
+    importance_matrix <- cbind(importance_matrix, importance(rffeatures)[,1])
+  }
+  
+  # Make predictions on train dataset
+  predictionsrf[i] <- predict(rffeatures, test_data, type = "response")
+  
+  # MSE
+  mserf[i] <- (predictionsrf[i] - test_data$Social_cohesion_21)^2
+  
+  # MSE
+  maerf[i] <- MAE(predictionsrf[i], test_data$Social_cohesion_21)
+  
+  # MAPE
+  maperf[i] <- mean(abs((test_data$Social_cohesion_21 - predictionsrf[i]) / test_data$Social_cohesion_21) * 100)
+  
+  # Accuracy on train set
+  accuraciesrf[i] <- Accuracy(round(predictionsrf[i],1), round(test_data$Social_cohesion_21, 1))
+}
+# Handle Metrics
+importances <- apply(importance_matrix, 1, mean)
+importances <- data.frame(importance = importances)
+importances <- importances %>% arrange(desc(importance))
+accuracyrf <- mean(accuraciesrf)
+mserf <- mean(mserf)
+maerf <- mean(maerf)
+maperf <- mean(maperf)
+rsquaredrf <- 1 - sum((data_fixed$Social_cohesion_21 - predictionsrf)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredrfAdj <- 1 - ((1 - rsquaredrf) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+
+# Show metrics
+importances
+print(paste(round(accuracyrf, 2), "Accuracy RF"))
+print(paste(round(mserf, 5), "MSE RF"))
+print(paste(round(maerf, 5), "MAE RF"))
+print(paste(round(maperf, 5), "MAPE RF"))
+print(paste(round(rsquaredrf, 3), "R^2 RF"))
+print(paste(round(rsquaredrfAdj, 3), "R^2 Adjusted RF"))
+
+# Plot importance
+par(mar=c(5, 25, 4, 2) + 0.1)
+importances_reversed <- importances %>% arrange(importance)
+barplot(importances_reversed$importance, names.arg = rownames(importances_reversed), main = "Importance by Predictor", xlab = "Predictor", ylab = "Importance", horiz = TRUE, col = "skyblue", las = 1, cex.names=1.0)
+
+
+# Metrics data frame
+rfmetrics <- data.frame(
+  MAE = c(round(maerf, 3)),
+  MSE = c(round(mserf, 5)),
+  MAPE = c(round(maperf, 5)),
+  R_squared = c(round(rsquaredrf, 3)),
+  R_squared_adjusted = c(round(rsquaredrfAdj, 3)),
+  row.names = c("RF metrics")
+)
+
+# Subsetting data to get ready for a rerun
+column_refinement <- match(rownames(importances), names(datafull))
+data_fixed <- datafull[, column_refinement]
+data_fixed <- cbind(datafull$Social_cohesion_21, datafull[, column_refinement])
+colnames(data_fixed)[1] <- "Social_cohesion_21"
+
+# Save variables list for rerun
+variables <- as.data.frame(c("Social_cohesion_21", colnames(datafull)[column_refinement]), col.names = "variable")
+savepath3 <- "intermediary files/Social_cohesion_21_FinalVariables.xlsx"
+write.xlsx(variables, savepath3, rowNames = FALSE, colNames = FALSE)
+
+# Check dataframes: importances, rfmetrics
+
+```
+
+
+THE HAGUE - MODELS
+```{r 10, message=FALSE}
+# Input final dataset with manually selected features
+# Run: 6 models
+# Output: table with 5 metrics for each models
+
+# Read variables and read full data
+variables <- "intermediary files/Social_cohesion_21_FinalVariables.xlsx"
+citydata <- "intermediary files/haag2021clean.xlsx"
+features <- read.xlsx(variables, colNames = FALSE)
+datafull <- read.xlsx(citydata, rowNames = TRUE)
+# Refine full data to only for the selected variables
+column_indices <- match(features$X1, names(datafull))
+data_fixed <- datafull[, column_indices]
+
+
+
+# RANDOM FOREST
+# Initialize an empty vector to store metrics for LOOCV
+predictionsrf <- vector("numeric", length = nrow(data_fixed))
+accuraciesrf <- vector("numeric", length = nrow(data_fixed)) # will not be taken into account
+mserf <- vector("numeric", length = nrow(data_fixed))
+maerf <- vector("numeric", length = nrow(data_fixed))
+maperf <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  # Create the training set by excluding the ith observation
+  train_data <- data_fixed[-i, ]
+  
+  # Create the test set with only the ith observation
+  test_data <- data_fixed[i, ]
+  
+  # Fit a Random Forest model 
+  rffeatures <- randomForest(train_data$Social_cohesion_21 ~ ., data = train_data, ntree = 1000, mtry = 10, importance = TRUE)
+  
+  if (i == 1) {
+    # Initialize importances table
+    importance_matrix <- as.numeric(matrix(NA, nrow = ncol(data_fixed) - 1, ncol = 2))
+    # Store feature importance
+    importance_matrix <- importance(rffeatures)[,1]
+  } else {
+    # Store recurrent feature importances
+    importance_matrix <- cbind(importance_matrix, importance(rffeatures)[,1])
+  }
+  
+  # Make predictions on train dataset
+  predictionsrf[i] <- predict(rffeatures, test_data, type = "response")
+  
+  # MSE
+  mserf[i] <- (predictionsrf[i] - test_data$Social_cohesion_21)^2
+  
+  # MSE
+  maerf[i] <- MAE(predictionsrf[i], test_data$Social_cohesion_21)
+  
+  # MAPE
+  maperf[i] <- mean(abs((test_data$Social_cohesion_21 - predictionsrf[i]) / test_data$Social_cohesion_21) * 100)
+  
+  # Accuracy on train set
+  accuraciesrf[i] <- Accuracy(round(predictionsrf[i],1), round(test_data$Social_cohesion_21, 1))
+}
+# Handle Metrics - take means and caclulate Rsquareds
+importances <- apply(importance_matrix, 1, mean)
+importances <- data.frame(importance = importances)
+importances <- importances %>% arrange(desc(importance))
+accuracyrf <- mean(accuraciesrf)
+mserf <- mean(mserf)
+maerf <- mean(maerf)
+maperf <- mean(maperf)
+rsquaredrf <- 1 - sum((data_fixed$Social_cohesion_21 - predictionsrf)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredrfAdj <- 1 - ((1 - rsquaredrf) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+
+# Show metrics
+importances
+print(paste(round(accuracyrf, 2), "Accuracy RF"))
+print(paste(round(mserf, 5), "MSE RF"))
+print(paste(round(maerf, 5), "MAE RF"))
+print(paste(round(maperf, 5), "MAPE RF"))
+print(paste(round(rsquaredrf, 3), "R^2 RF"))
+print(paste(round(rsquaredrfAdj, 3), "R^2 Adjusted RF"))
+
+# Plot importance
+par(mar=c(5, 25, 4, 2) + 0.1)
+importances_reversed <- importances %>% arrange(importance)
+barplot(importances_reversed$importance, names.arg = rownames(importances_reversed), main = "Importnace by Predictor", xlab = "Predictor", ylab = "Importance", horiz = TRUE, col = "skyblue", las = 1, cex.names=1.0)
+
+# FROM THIS POIN ON COMMENTS WILL BE SPARSE. THE FOLLOWING 5 MODELS KEEP THE SAME STRUCTURE WITH THE FIRST ONE.
+
+
+
+
+# Regression
+predictionsreg <- vector("numeric", length = nrow(data_fixed))
+accuraciesreg <- vector("numeric", length = nrow(data_fixed))
+msereg <- vector("numeric", length = nrow(data_fixed))
+maereg <- vector("numeric", length = nrow(data_fixed))
+mapereg <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  train_data <- data_fixed[-i, ]
+  test_data <- data_fixed[i, ]
+  # Fit a Random Forest model 
+  regfeatures <- lm(train_data$Social_cohesion_21 ~ ., data = train_data)
+  predictionsreg[i] <- predict(regfeatures, test_data, type = "response")
+  # Metrics
+  msereg[i] <- (predictionsreg[i] - test_data$Social_cohesion_21)^2
+  maereg[i] <- MAE(predictionsreg[i], test_data$Social_cohesion_21)
+  mapereg[i] <- mean(abs((test_data$Social_cohesion_21 - predictionsreg[i]) / test_data$Social_cohesion_21) * 100)
+  accuraciesreg[i] <- Accuracy(round(predictionsreg[i], 1), round(test_data$Social_cohesion_21, 1))
+}
+
+# Handle metrics - take means
+accuracyreg <- mean(accuraciesreg)
+msereg <- mean(msereg)
+maereg <- mean(maereg)
+mapereg <- mean(mapereg)
+rsquaredreg <- 1 - sum((data_fixed$Social_cohesion_21 - predictionsreg)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredregAdj <- 1 - ((1 - rsquaredreg) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+print(paste(round(accuracyreg, 2), "Accuracy Reg"))
+print(paste(round(msereg, 5), "MSE Reg"))
+print(paste(round(maereg, 5), "MAE Reg"))
+print(paste(round(mapereg, 5), "MAPE Reg"))
+print(paste(round(rsquaredreg, 3), "R^2 Reg"))
+print(paste(round(rsquaredregAdj, 3), "R^2 Adjusted Reg"))
+
+
+
+# SVR
+predictionssvr <- vector("numeric", length = nrow(data_fixed))
+accuraciessvr <- vector("numeric", length = nrow(data_fixed))
+msesvr <- vector("numeric", length = nrow(data_fixed))
+maesvr <- vector("numeric", length = nrow(data_fixed))
+mapesvr <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  train_data <- data_fixed[-i, ]
+  test_data <- data_fixed[i, ]
+  # Fit an svr model
+  svrfeatures <- svm(Social_cohesion_21 ~ . -Social_cohesion_21, data = train_data, type = 'eps-regression', kernel = 'radial', epsilon = 0.1)
+  predictionssvr[i] <- predict(svrfeatures, test_data, type = "response") 
+  # Metrics
+  msesvr[i] <- (predictionssvr[i] - test_data$Social_cohesion_21)^2
+  maesvr[i] <- MAE(predictionssvr[i], test_data$Social_cohesion_21)
+  mapesvr[i] <- mean(abs((test_data$Social_cohesion_21 - predictionssvr[i]) / test_data$Social_cohesion_21) * 100)
+  accuraciessvr[i] <- Accuracy(round(predictionssvr[i], 1), round(test_data$Social_cohesion_21, 1))
+}
+
+# Metrics - means
+accuracysvr <- mean(accuraciessvr)
+msesvr <- mean(msesvr)
+maesvr <- mean(maesvr)
+mapesvr <- mean(mapesvr)
+rsquaredsvr <- 1 - sum((data_fixed$Social_cohesion_21 - predictionssvr)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredsvrAdj <- 1 - ((1 - rsquaredsvr) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+print(paste(round(accuracysvr, 2), "Accuracy SVR"))
+print(paste(round(msesvr, 5), "MSE SVR"))
+print(paste(round(maesvr, 5), "MAE SVR"))
+print(paste(round(mapesvr, 5), "MAPE SVR"))
+print(paste(round(rsquaredsvr, 3), "R^2 SVR"))
+print(paste(round(rsquaredsvrAdj, 3), "R^2 Adjusted SVR"))
+
+
+
+
+
+# Ridge Regression
+library(glmnet)
+
+# Define custom MAE and Accuracy functions
+mae <- function(actual, predicted) {
+  mean(abs(actual - predicted))
+}
+
+accuracy <- function(predicted, actual) {
+  mean(predicted == actual)
+}
+
+# Initialize vectors to store results
+predictionsrreg <- numeric(nrow(data_fixed))
+accuraciesrreg <- numeric(nrow(data_fixed))
+mserreg <- numeric(nrow(data_fixed))
+maerreg <- numeric(nrow(data_fixed))
+maperreg <- numeric(nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  train_data <- data_fixed[-i, ]
+  test_data <- data_fixed[i, , drop = FALSE]
+  
+  # Convert training data to matrix
+  train_data_numeric <- model.matrix(~ . - 1, data = train_data)
+  train_x <- train_data_numeric[, -which(colnames(train_data_numeric) == "Social_cohesion_21")]
+  train_y <- train_data$Social_cohesion_21
+  
+  # Perform cross-validation to find best lambda
+  cv_ridge <- cv.glmnet(x = train_x, y = train_y, family = "gaussian", alpha = 0)
+  
+  # Best lambda based on minimum criteria
+  lambda_best <- cv_ridge$lambda.min
+  
+  # Train a Ridge Regression model
+  ridge_regression <- glmnet(x = train_x, y = train_y, family = "gaussian", alpha = 0, lambda = lambda_best)
+  
+  # Convert test data to matrix
+  test_data_numeric <- model.matrix(~ . - 1, data = test_data)
+  test_x <- test_data_numeric[, -which(colnames(test_data_numeric) == "Social_cohesion_21")]
+  
+  # Predict on test set
+  predictionsrreg[i] <- predict(ridge_regression, newx = test_x)
+  
+  # Metrics
+  mserreg[i] <- (predictionsrreg[i] - test_data$Social_cohesion_21)^2
+  maerreg[i] <- mae(test_data$Social_cohesion_21, predictionsrreg[i])
+  maperreg[i] <- mean(abs((test_data$Social_cohesion_21 - predictionsrreg[i]) / test_data$Social_cohesion_21) * 100)
+  accuraciesrreg[i] <- accuracy(round(predictionsrreg[i], 1), round(test_data$Social_cohesion_21, 1))
+}
+
+# Metric means
+accuracyrreg <- mean(accuraciesrreg)
+mserreg_mean <- mean(mserreg)
+maerreg_mean <- mean(maerreg)
+maperreg_mean <- mean(maperreg)
+rsquaredrreg <- 1 - sum((data_fixed$Social_cohesion_21 - predictionsrreg)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredrregAdj <- 1 - ((1 - rsquaredrreg) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+print(paste(round(accuracyrreg, 2), "Accuracy Rreg"))
+print(paste(round(mserreg_mean, 5), "MSE Rreg"))
+print(paste(round(maerreg_mean, 5), "MAE Rreg"))
+print(paste(round(maperreg_mean, 5), "MAPE Rreg"))
+print(paste(round(rsquaredrreg, 3), "R^2 Rreg"))
+print(paste(round(rsquaredrregAdj, 3), "R^2 Adjusted Rreg"))
+
+
+
+
+# Polynomial Regression
+predictionspreg <- vector("numeric", length = nrow(data_fixed))
+accuraciespreg <- vector("numeric", length = nrow(data_fixed))
+msepreg <- vector("numeric", length = nrow(data_fixed))
+maepreg <- vector("numeric", length = nrow(data_fixed))
+mapepreg <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  train_data <- data_fixed[-i, ]
+  test_data <- data_fixed[i, ]
+  
+  train_data_sub <- as.matrix(train_data[, -which(names(train_data) == "Social_cohesion_21"), drop = FALSE])
+  # Fit a Random Forest model 
+  pregfeatures <- lm(train_data$Social_cohesion_21 ~ train_data_sub + I(train_data_sub^2), data = train_data)
+  # Make predictions on train dataset
+  predictionspreg[i] <- predict(pregfeatures, test_data, type = "response")
+  
+  # Merics
+  msepreg[i] <- (predictionspreg[i] - test_data$Social_cohesion_21)^2
+  maepreg[i] <- MAE(predictionspreg[i], test_data$Social_cohesion_21)
+  mapepreg[i] <- mean(abs((test_data$Social_cohesion_21 - predictionspreg[i]) / test_data$Social_cohesion_21) * 100)
+  accuraciespreg[i] <- Accuracy(round(predictionspreg[i], 1), round(test_data$Social_cohesion_21, 1))
+}
+
+# Metrics means
+accuracypreg <- mean(accuraciespreg)
+msepreg <- mean(msepreg)
+maepreg <- mean(maepreg)
+mapepreg <- mean(mapepreg)
+rsquaredpreg <- 1 - sum((data_fixed$Social_cohesion_21 - predictionspreg)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredpregAdj <- 1 - ((1 - rsquaredpreg) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+print(paste(round(accuracypreg, 2), "Accuracy Preg"))
+print(paste(round(msepreg, 5), "MSE Preg"))
+print(paste(round(maepreg, 5), "MAE Preg"))
+print(paste(round(mapepreg, 5), "MAPE Preg"))
+print(paste(round(rsquaredpreg, 3), "R^2 Preg"))
+print(paste(round(rsquaredpregAdj, 3), "R^2 Adjusted Preg"))
+
+
+
+# RESULTS IF GBM IS SKIPPED
+accuracygbm <- 999
+msegbm <- 999
+maegbm <- 999
+mapegbm <- 999
+rsquaredgbm <- 999
+rsquaredgbmAdj <- 999
+
+# GBM
+predictionsgbm <- vector("numeric", length = nrow(data_fixed))
+accuraciesgbm <- vector("numeric", length = nrow(data_fixed))
+msegbm <- vector("numeric", length = nrow(data_fixed))
+maegbm <- vector("numeric", length = nrow(data_fixed))
+mapegbm <- vector("numeric", length = nrow(data_fixed))
+
+# Perform LOOCV
+for (i in 1:nrow(data_fixed)) {
+  train_data <- data_fixed[-i, ]
+  test_data <- data_fixed[i, ]
+  # Fit the model
+  set.seed(42) # for reproducibility
+  gbmfeatures = gbm(train_data$Social_cohesion_21 ~ ., data = train_data, distribution = "gaussian", n.trees = 1000, interaction.depth = 4, shrinkage = 0.01, cv.folds = 5, n.minobsinnode = 5)
+  # Make predictions on train dataset
+  predictionsgbm[i] <- predict(gbmfeatures, test_data, type = "response")
+  # Metrics
+  msegbm[i] <- (predictionsgbm[i] - test_data$Social_cohesion_21)^2
+  maegbm[i] <- MAE(predictionsgbm[i], test_data$Social_cohesion_21)
+  mapegbm[i] <- mean(abs((test_data$Social_cohesion_21 - predictionsgbm[i]) / test_data$Social_cohesion_21) * 100)
+  accuraciesgbm[i] <- Accuracy(round(predictionsgbm[i], 1), round(test_data$Social_cohesion_21, 1))
+}
+# Metrics means
+accuracygbm <- mean(accuraciesgbm)
+msegbm <- mean(msegbm)
+maegbm <- mean(maegbm)
+mapegbm <- mean(mapegbm)
+rsquaredgbm <- 1 - sum((data_fixed$Social_cohesion_21 - predictionsgbm)^2) / sum((data_fixed$Social_cohesion_21 - mean(data_fixed$Social_cohesion_21))^2)
+rsquaredgbmAdj <- 1 - ((1 - rsquaredgbm) * (nrow(data_fixed) - 1) / (nrow(data_fixed) - ncol(data_fixed) - 1))
+
+print(paste(round(accuracygbm, 2), "Accuracy GBM"))
+print(paste(round(msegbm, 5), "MSE GBM"))
+print(paste(round(maegbm, 5), "MAE GBM"))
+print(paste(round(mapegbm, 5), "MAPE GBM"))
+print(paste(round(rsquaredgbm, 3), "R^2 GBM"))
+print(paste(round(rsquaredgbmAdj, 3), "R^2 Adjusted GBM"))
+
+
+
+
+# RESULTS DATA FRANE: 5 metrics x 6 models
+results <- data.frame(
+  MAE = c(round(maerf, 3), round(maereg, 3), round(maesvr, 3), round(maerreg_mean, 3), round(maepreg, 3), round(maegbm, 5)),
+  MSE = c(round(mserf, 5), round(msereg, 5), round(msesvr, 5), round(mserreg_mean, 5), round(msepreg, 5), round(msegbm, 5)),
+  MAPE = c(round(maperf, 5), round(mapereg, 5), round(mapesvr, 5), round(maperreg_mean, 5), round(mapepreg, 5), round(mapegbm, 5)),
+  R_squared = c(round(rsquaredrf, 3), round(rsquaredreg, 3), round(rsquaredsvr, 3), round(rsquaredrreg, 3), round(rsquaredpreg, 3), round(rsquaredgbm, 3)),
+  R_squared_adjusted = c(round(rsquaredrfAdj, 3), round(rsquaredregAdj, 3), round(rsquaredsvrAdj, 3), round(rsquaredrregAdj, 3), round(rsquaredpregAdj, 3), round(rsquaredgbmAdj, 3)),
+  row.names = c("RF", "Reg", "SVR", "Ridge reg", "Poly reg", "GBM")
+)
+results
+
+# Store final output
+write.xlsx(results, "output/output_hague.xlsx", rowNames = TRUE, colNames = TRUE)
+
+# Check dataframe: results
+```
+
+
+
+AMSTERDAM 
+
+FINAL FEATURE SELECTION AND MODELS [starting from clean dataset, with 5-fold cv]
+```{r 11}
+set.seed(123) 
+
+# Clean Data set for Amsterdam
+data_clean <- read.xlsx("source data/source_data_amsterdam.xlsx", rowNames = TRUE)
+
+# RANDOM FOREST
+# Fitting a random forest and showing importance to select final features
+rf_modelPW <- randomForest(data_clean$`Prettig.wonen.(1-10)` ~data_clean$Huur.gemiddeld +data_clean$`Thuisvoelen.(1-10)` + data_clean$`Betrokkenheid.buurt.(1-10)` +
+                             data_clean$`Discriminatie.(%.wel.eens)` +data_clean$`Omgang.groepen.(1-10)` +data_clean$`Kantoren.(%)` +
+                             data_clean$`Schoon.straat.(1-10)` +data_clean$`Onderhoud.straat.(1-10)` +data_clean$`Buurt.schoon.(%)` +
+                             data_clean$`Sportvestigingen./.1.000.inw.`  +data_clean$`Mensen.helpen.elkaar.(1-10)` +data_clean$`Schoon.speelplaatsen.(1-10)` +
+                             data_clean$`Zorgvoorzieningen.(1-10)` +data_clean$`Welzijnsvoorzieningen./1.000.inw` +
+                             data_clean$`Contact.in.de.buurt.(1-10)` ,data = data_clean[,5:42], importance = TRUE, ntree = 1000)
+importance(rf_modelPW)
+varImpPlot(rf_modelPW)
+
+
+# Making the final model
+control <- trainControl(method = "cv", number = 5,savePredictions = "final")
+rf_model_PW <- train(`Prettig.wonen.(1-10)`~`Thuisvoelen.(1-10)`+ `Betrokkenheid.buurt.(1-10)`+
+                       `Discriminatie.(%.wel.eens)`+`Omgang.groepen.(1-10)`+`Kantoren.(%)`+`Buurt.schoon.(%)`+`Mensen.helpen.elkaar.(1-10)`,data = data_clean, method="rf",
+                     trControl=control, 
+                     metric="Rsquared",
+                     tuneGrid = data.frame(.mtry = c(2, 3, 4)),
+                     ntree = 1000,  # Specify number of trees here
+)
+
+  ###Function to calculate Adjusted R-squared
+calculate_adjusted_r_squared <- function(df, num_predictors) {
+  ss_res <- sum((df$obs - df$pred)^2)
+  ss_tot <- sum((df$obs - mean(df$obs))^2)
+  r_squared <- 1 - (ss_res / ss_tot)
+  
+  n <- nrow(df)  # Total number of data points in the fold
+  adjusted_r_squared <- 1 - ((1 - r_squared) * (n - 1) / (n - num_predictors - 1))
+  adjusted_r_squared
+}
+num_predictors <- 7
+
+resamples_summary <- rf_model_PW$resample
+
+predictions <- rf_model_PW$pred %>%
+  mutate(
+    obs = as.numeric(as.character(obs)),
+    pred = as.numeric(as.character(pred))
+  )
+
+  ###Group by 'Resample' and calculate the metrics for each fold
+metrics_per_fold <- predictions %>%
+  group_by(Resample) %>%
+  summarise(MSE = mean((obs - pred)^2),
+            MAPE = mean(abs((obs - pred) / obs)) * 100,
+            Adjusted_R_squared = calculate_adjusted_r_squared(cur_data(), num_predictors),
+  )
+print(metrics_per_fold)
+
+
+# Final Metrics
+mae_mean<-mean(resamples_summary$MAE)
+mse_mean<-mean(metrics_per_fold$MSE)
+mape_mean<-mean(metrics_per_fold$MAPE)
+rmse_mean <- mean(resamples_summary$RMSE)
+rsq_mean <- mean(resamples_summary$Rsquared)
+r2_adjusted_mean <- mean(metrics_per_fold$Adjusted_R_squared)
+
+metrics_summary_RF <- data.frame(
+  Metric = c("MAE", "MSE", "MAPE", "RMSE", "R-squared", "Adjusted R-squared"),
+  Mean = c(mae_mean, mse_mean, mape_mean, rmse_mean, rsq_mean, r2_adjusted_mean)
+)
+
+# Create result data frame
+results_amsterdam <- data.frame(
+  RF = c(mae_mean, mse_mean, mape_mean, rmse_mean, rsq_mean, r2_adjusted_mean)
+)
+rownames(results_amsterdam) <- c("MAE", "MSE", "MAPE", "RMSE", "R-squared", "Adjusted R-squared")
+results_amsterdam <- as.data.frame(t(results_amsterdam))
+
+```
+
+# REGRESSION
+# Multivariate regression to get vif values and select features
+```{r 12}
+model <- lm(data_clean$`Prettig.wonen.(1-10)` ~data_clean$Huur.gemiddeld +data_clean$`Thuisvoelen.(1-10)` + data_clean$`Betrokkenheid.buurt.(1-10)` +
+              data_clean$`Discriminatie.(%.wel.eens)` +data_clean$`Omgang.groepen.(1-10)` +data_clean$`Kantoren.(%)` +
+              data_clean$`Schoon.straat.(1-10)` +data_clean$`Onderhoud.straat.(1-10)` +data_clean$`Buurt.schoon.(%)` +
+              data_clean$`Sportvestigingen./.1.000.inw.`  +data_clean$`Mensen.helpen.elkaar.(1-10)` +data_clean$`Schoon.speelplaatsen.(1-10)` +
+              data_clean$`Zorgvoorzieningen.(1-10)` +data_clean$`Welzijnsvoorzieningen./1.000.inw` +
+              data_clean$`Contact.in.de.buurt.(1-10)` ,data = data_clean[,2:42])
+
+summary(model)
+
+#checking VIF value
+vif_valuesPW <- vif(model)
+vif_values <- as.data.frame(vif_valuesPW) %>% arrange(desc(vif_valuesPW))
+
+# Keep only the variables with a VIF below 5 
+low_vif_varsPW <- names(vif_valuesPW)[vif_valuesPW < 5]
+print(low_vif_varsPW)
+
+# Multivariate regression for pleasant living
+# Create the formula for the new model
+control <- trainControl(method = "cv", number = 5,savePredictions = "final")
+
+mr_model_PW <- train(`Prettig.wonen.(1-10)`~ `Huur.gemiddeld`+ 
+                       `Discriminatie.(%.wel.eens)`+ `Kantoren.(%)`+ `Buurt.schoon.(%)`+
+                       `Sportvestigingen./.1.000.inw.`+
+                       `Zorgvoorzieningen.(1-10)`+`Welzijnsvoorzieningen./1.000.inw`,data = data_clean, method="lm",trControl=control, metric="Rsquared")
+resamples_summary_MR <- mr_model_PW$resample
+predictions_MR <- mr_model_PW$pred %>%
+  mutate(
+    obs = as.numeric(as.character(obs)),
+    pred = as.numeric(as.character(pred))
+  )
+
+num_predictors <- 7
+
+# group by 'Resample' and calculate the metrics for each fold
+metrics_per_fold_MR <- predictions_MR %>%
+  group_by(Resample) %>%
+  summarise(MSE = mean((obs - pred)^2),
+            MAPE = mean(abs((obs - pred) / obs)) * 100,
+            Adjusted_R_squared = calculate_adjusted_r_squared(cur_data(), num_predictors),
+  )
+print(metrics_per_fold_MR)
+
+# Metrics Multivariate reg
+mae_mean_MR<-mean(resamples_summary_MR$MAE)
+mse_mean_MR<-mean(metrics_per_fold_MR$MSE)
+mape_mean_MR<-mean(metrics_per_fold_MR$MAPE)
+rmse_mean_MR <- mean(resamples_summary_MR$RMSE)
+rsq_mean_MR <- mean(resamples_summary_MR$Rsquared)
+r2_adjusted_mean_MR <- mean(metrics_per_fold_MR$Adjusted_R_squared)
+
+# Metrics data frame
+metrics_summary_MR <- data.frame(
+  Metric = c("MAE", "MSE", "MAPE", "RMSE", "R-squared", "Adjusted R-squared"),
+  Reg = c(mae_mean_MR, mse_mean_MR, mape_mean_MR, rmse_mean_MR, rsq_mean_MR, r2_adjusted_mean_MR)
+)
+metrics_summary_MR <- as.data.frame(t(metrics_summary_MR))
+
+# Final output data frame with metrics from both models
+results_amsterdam[2, ] <- metrics_summary_MR[2, ]
+rownames(results_amsterdam)[2] <- "multivariate reg"
+
+
+```
+
+# SVR model
+```{r 13}
+selected_vars <- c("Prettig.wonen.(1-10)", "Huur.gemiddeld", "Thuisvoelen.(1-10)", 
+                   "Betrokkenheid.buurt.(1-10)", "Discriminatie.(%.wel.eens)", 
+                   "Omgang.groepen.(1-10)", "Kantoren.(%)", "Schoon.straat.(1-10)", 
+                   "Onderhoud.straat.(1-10)", "Buurt.schoon.(%)", 
+                   "Sportvestigingen./.1.000.inw.", "Mensen.helpen.elkaar.(1-10)", 
+                   "Schoon.speelplaatsen.(1-10)", "Zorgvoorzieningen.(1-10)", 
+                   "Welzijnsvoorzieningen./1.000.inw", "Contact.in.de.buurt.(1-10)")
+
+data_subset <- data_clean[, selected_vars]
+
+# Define the rfeControl function for recursive feature elimination
+rfe_control <- rfeControl(functions = caretFuncs, method = "cv", number = 5)
+
+svr_rfe <- rfe(x = data_subset[, -which(names(data_subset) == "Prettig.wonen.(1-10)")],
+               y = data_subset$`Prettig.wonen.(1-10)`,
+               sizes = c(1:42),  # You can adjust this range based on the number of features you have
+               rfeControl = rfe_control,
+               method = "svmRadial")
+
+# Print the optimal number of features
+print(svr_rfe)
+chosen_features <- predictors(svr_rfe)
+print(chosen_features)
+
+
+control <- trainControl(method = "cv", number = 5, savePredictions = "final")
+svr_model <- train(`Prettig.wonen.(1-10)` ~ `Thuisvoelen.(1-10)` + `Omgang.groepen.(1-10)` +
+           `Betrokkenheid.buurt.(1-10)` + `Buurt.schoon.(%)` + `Discriminatie.(%.wel.eens)`, 
+                   data = data_clean,
+                   method = "svmRadial",
+                   trControl = control,
+                   metric = "Rsquared",
+                   tuneLength = 10)
+print(svr_model$bestTune)
+summary(svr_model)
+
+resamples_summary_svr <- svr_model$resample
+predictions_svr <- svr_model$pred %>%
+  mutate(
+    obs = as.numeric(as.character(obs)),
+    pred = as.numeric(as.character(pred))
+  )
+
+# group by 'Resample' and calculate the metrics for each fold
+num_predictors <- 5
+metrics_per_fold_svr <- predictions_svr %>%
+  group_by(Resample) %>%
+  summarise(MSE = mean((obs - pred)^2),
+            MAPE = mean(abs((obs - pred) / obs)) * 100,
+            Adjusted_R_squared = calculate_adjusted_r_squared(cur_data(), num_predictors),
+  )
+print(metrics_per_fold_svr)
+
+# Metrics Multivariate reg
+mae_mean_svr<-mean(resamples_summary_svr$MAE)
+mse_mean_svr<-mean(metrics_per_fold_svr$MSE)
+mape_mean_svr<-mean(metrics_per_fold_svr$MAPE)
+rmse_mean_svr <- mean(resamples_summary_svr$RMSE)
+rsq_mean_svr <- mean(resamples_summary_svr$Rsquared)
+r2_adjusted_mean_svr <- mean(metrics_per_fold_svr$Adjusted_R_squared)
+
+# Metrics data frame
+metrics_summary_svr <- data.frame(
+  Metric = c("MAE", "MSE", "MAPE", "RMSE", "R-squared", "Adjusted R-squared"),
+  Reg = c(mae_mean_svr, mse_mean_svr, mape_mean_svr, rmse_mean_svr, rsq_mean_svr, r2_adjusted_mean_svr)
+)
+metrics_summary_svr <- as.data.frame(t(metrics_summary_svr))
+results_amsterdam[3, ] <- metrics_summary_svr[2, ]
+rownames(results_amsterdam)[3] <- "svr"
+
+savepath8 <- "output/output_amsterdam.xlsx"
+write.xlsx(results_amsterdam, savepath8, rowNames = TRUE)
+```
+# Check results_Amsterdam
+```
