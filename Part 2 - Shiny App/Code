@@ -1,1 +1,419 @@
+library(shiny)
+library(shinyjs)
+library(readxl)
+library(randomForest)
+library(leaflet)
+library(RColorBrewer)
+library(dplyr)
+library(bslib)
+library(plotly)
+
+# Load the geodata
+geodata <- read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/geo data the hague.xlsx")
+models <- list(
+  social_cohesion = readRDS("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2021socialcohesionRF.rds"),
+  loneliness = readRDS("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2020lonelinessRF.rds"),
+  health = readRDS("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2020healthRF.rds"),
+  safety = readRDS("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2021safetyRF.rds")
+)
+
+datasets <- list(
+  social_cohesion = read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2021socialcohesionData.xlsx"),
+  loneliness = read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2020lonelinessData.xlsx"),
+  health = read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2020healthData.xlsx"),
+  safety = read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/haag2021safetyData.xlsx")
+)
+
+merged_data_hague <- lapply(datasets, function(data) merge(data, geodata, by = "Neighborhoods"))
+predicted_scores_hague <- lapply(names(merged_data_hague), function(indicator) {
+  model <- models[[indicator]]
+  data <- merged_data_hague[[indicator]]
+  data[[paste0(indicator, "_score")]] <- predict(model, data)
+  data
+})
+names(predicted_scores_hague) <- names(merged_data_hague)
+
+# Load data and models for Amsterdam
+geodata_amsterdam <- read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/GeodataAmstrdam.xlsx")
+models_amsterdam <- list(
+  pleasant_living = readRDS("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/amsterdamRFTRUE.rds")
+)
+datasets_amsterdam <- list(
+  pleasant_living = read_xlsx("C:/Users/emily/Documents/Maastricht master BI/Semester 2/Smart Service project/amsterdam_final_dataTRUETRUE.xlsx")
+)
+merged_data_amsterdam <- lapply(datasets_amsterdam, function(data) merge(data, geodata_amsterdam, by = "Neighborhoods"))
+predicted_scores_amsterdam <- lapply(names(merged_data_amsterdam), function(indicator) {
+  model <- models_amsterdam[[indicator]]
+  data <- merged_data_amsterdam[[indicator]]
+  data[[paste0(indicator, "_score")]] <- predict(model, data)
+  data
+})
+names(predicted_scores_amsterdam) <- names(merged_data_amsterdam)
+
+# Define label mapping
+label_mapping <- list(
+  "percentage_of_sports_associations_member_ship_17" = "% sport association membership",
+  "AttractionsWithin20Km_112" = "Attractions within 20km",
+  "Havo_wvoWithin3Km_73" = "Havo/wvo Within 3Km",
+  "PerformingArtsWithin5Km_100" = "Performing Arts Within 5Km",
+  "DistanceToCinema_104" = "Distance to cinema",
+  "nuisance_from_local_residents_percent_21" = "% nuisance from local residents",
+  "people_hardly_know_each_other_percent_21" = "% people hardly know each other",
+  "non_working_job_seekers_total_17" = "Non-working job-seekers",
+  "odor_nuisance_percent_21" = "% odor nuisance",
+  "score_physical_quality_of_living_environment_percent_21" = "% physical quality of living environment",
+  "victimization_of_ciolent_crimes_percent_21" = "% victimization of violent crimes",
+  "percentage_rental_properties_20" = "% rental properties",
+  "percentage_of_sports_associations_member_ship_17" = "% sports associations memberships",
+  "DistanceToTrainStationAllTypes_105" = "Distance to train station",
+  "DistanceToGPPost_9" = "Distance to GP Post",
+  "AttractionWithin10Km_126" = "Attractions within 10Km",
+  "DistanceToMuseum_110" = "Distance to museum",
+  "PrimarySchoolWithin1Km_61" = "Primary school within 1Km",
+  "percentage_who_have_difficulty_making_ends_meet_20" = "% people who earn just enough money to live on",
+  "persentage_smoke_20" = "% smokers",
+  "married_20" = "Married",
+  "percentage_who_provide_informal_care_20" = "% who provide informal care",
+  "percentage_drink_no_alcoho_or_one_glass_per_day_20" = "% people who drink no alcohol",
+  "living_together_without_children_households_20" = "Households without children",
+  "percentage_who_do_volunteer_work_20" = "% people who do volunteer work",
+  "percentage_people_with_pgysical_disabilities_20" = "% people with physical disabilities",
+  "niusance_from_harassing_people_on_te_street_percent_21" = "Nuisance from harassing people on the street",
+  "I_live_in_a_nice_neghborhood_where_people_help_each_other_21" = "Neighborhood where people help each other",
+  "average_valie_of_homes_in_general_20" = "Average value of homes",
+  "satisfied_with_maintenance_of_sidewalks_streets_and_squares_percent_21" = "% satisfied with maintenance of sidewalks, streets, and squares",
+  "education_level_low_20" = "Education level (low)",
+  "rubbish_on_street_21" = "Rubbish on street",
+  "odor_nuisance_percent_21" = "% odor nuisance",
+  "environmental_nuisance_21" = "Environmental nuisance",
+  "victimization_of_property_crimes_percent_21" = "% victimization of property crimes",
+  "nuisance_from_catering_establishments_percent_21" = "% nuisance from catering establishments",
+  "average_private_cars_per_adress_21" = "Average private cars per address",
+  "satisfied_with_municipality_for_quality_of_life_and_safety_21" = "Satisfied with municipality for quality of life and safety",
+  "children_in_childcare_19" = "Children in childcare",
+  "satisfied_with_maintencance_public_gardens_and_parks_percent_21" = "% satisfied with maintenance of public gardens and parks",
+  "drig_trafficking_percent_21" = "% drug trafficking",
+  "confused_persons_percent_21" = "% confused persons",
+  "social_nuisance_percent_21" = "% social nuisance",
+  "percentage_high_risk_for_anxiety_disorder_or_depression_20" = "% high risk for anxiety disorder/depression",
+  "drug_use_percent_21" = "% drug use",
+  "education_level_secondary_21" = "Education level (secondary)",
+  "DepartmentStoreWithin5Km_33" = "Department stores within 5Km",
+  "offices_percent" = "% offices",
+  "neighborhood_clean_percent" = "% neighborhood clean",
+  "neighborhood_engagement_1_10" = "Neighborhood engagement",
+  "discrimination_percent" = "% discrimination",
+  "group_interaction_1_10" = "Group interaction score",
+  "people_help_each_other_1_10" = "People help each other"
+)
+
+
+# UI
+ui <- fluidPage(
+  theme = bs_theme(
+    version = 4,
+    bootswatch = "minty"
+  ),
+  useShinyjs(),
+  tags$head(
+    tags$style(HTML("
+      body, html {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map {
+        height: 100vh !important;
+        width: 100vw !important;
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        left: 0;
+        z-index: 1;
+      }
+      .control-panel {
+        position: absolute;
+        top: 60px;
+        left: 60px;
+        z-index: 1000;
+        background-color: rgba(255, 255, 255, 0.8);
+        padding: 10px;
+        border-radius: 5px;
+        max-width: 300px;
+        overflow-y: auto;
+      }
+      .control-panel .well {
+        margin: 0;
+      }
+      .control-panel select, .control-panel input, .control-panel button, .control-panel label {
+        font-size: 11px;  
+      }
+      .control-panel .btn-primary, .control-panel .btn-secondary, .control-panel .btn-success, .control-panel .btn-warning {
+        background-color: #6c757d;  /* Bootstrap grey */
+        border-color: #6c757d;  /* Bootstrap grey */
+        color: white;
+      }
+      .control-panel .btn-primary:hover, .control-panel .btn-secondary:hover, .control-panel .btn-success:hover, .control-panel .btn-warning:hover {
+        background-color: #5a6268;  /* Darker grey on hover */
+        border-color: #5a6268;  /* Darker grey on hover */
+      }
+      .control-panel .btn-primary:focus, .control-panel .btn-secondary:focus, .control-panel .btn-success:focus, .control-panel .btn-warning:focus {
+        background-color: #5a6268;  /* Darker grey on focus */
+        border-color: #5a6268;  /* Darker grey on focus */
+        box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.5);  /* Shadow on focus */
+      }
+      .control-panel .irs-bar, .control-panel .irs-bar-edge, .control-panel .irs-line {
+        background-color: #B0C8D1 !important;  /* Light blue with grey (#B0C8D1) */
+        border-color: #B0C8D1 !important;  /* Light blue with grey (#B0C8D1) */
+      }
+      .control-panel .irs-handle {
+        background-color: #dcdcdc !important;  /* Gray (#dcdcdc) */
+        border-color: #dcdcdc !important;  /* Gray (#dcdcdc) */
+      }
+      .control-panel .irs-single {
+        background-color: #dcdcdc !important;  /* Grey */
+        border-color: #dcdcdc !important;  /* Grey */
+      }
+      .nav-link.active {
+        color: #333333; /* Slightly darker for selected tab */
+      }
+      .nav-link {
+        color: #999999; /* Slightly lighter for unselected tab */
+      }
+      .btn-secondary {
+        background-color: #b0b0b0;  /* Lighter shade of grey */
+        border-color: #b0b0b0;  /* Lighter shade of grey */
+        color: white;
+      }
+      .btn-secondary:hover {
+        background-color: #999999;  /* Slightly darker grey on hover */
+        border-color: #999999;  /* Slightly darker grey on hover */
+      }
+      .btn-secondary:focus {
+        background-color: #999999;  /* Slightly darker grey on focus */
+        border-color: #999999;  /* Slightly darker grey on focus */
+        box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.5);  /* Shadow on focus */
+      }
+      .btn-secondary-reset {
+        background-color: #b0b0b0 !important; /* Lighter shade of grey */
+        border-color: #b0b0b0 !important; /* Lighter shade of grey */
+        color: white !important;
+      }
+    "))
+  ),
+  leafletOutput("map", height = "100vh"),
+  div(class = "control-panel",
+      titlePanel(
+        div("Amvest Smart Service", style = "font-size: 24px;")
+      ),
+      selectInput("city", "Choose City:", choices = c("The Hague", "Amsterdam")),
+      uiOutput("indicator_ui"),
+      uiOutput("dynamic_tabs"),
+      actionButton("reset", "Reset", class = "btn-secondary btn-secondary-reset")
+  )
+)
+
+# Server
+server <- function(input, output, session) {
+  
+  # Reactive expressions for datasets and models
+  current_city <- reactive({
+    switch(input$city,
+           "The Hague" = list(
+             datasets = datasets,
+             predicted_scores = predicted_scores_hague,
+             models = models,
+             indicators = names(predicted_scores_hague)
+           ),
+           "Amsterdam" = list(
+             datasets = datasets_amsterdam,
+             predicted_scores = predicted_scores_amsterdam,
+             models = models_amsterdam,
+             indicators = "pleasant_living"
+           )
+    )
+  })
+  
+  output$indicator_ui <- renderUI({
+    if (input$city == "The Hague") {
+      selectInput("indicator", "Choose Indicator:", choices = current_city()$indicators)
+    } else {
+      tags$p("Indicator: Pleasant Living")
+    }
+  })
+  
+  indicator_features <- reactive({
+    req(input$city)
+    if (input$city == "The Hague") {
+      req(input$indicator)
+      switch(input$indicator,
+             "social_cohesion" = list(
+               urban = c("percentage_of_sports_associations_member_ship_17", "AttractionsWithin20Km_112", "Havo_wvoWithin3Km_73", "PerformingArtsWithin5Km_100", "DistanceToCinema_104"),
+               social = c("nuisance_from_local_residents_percent_21", "people_hardly_know_each_other_percent_21", "non_working_job_seekers_total_17", "odor_nuisance_percent_21", "score_physical_quality_of_living_environment_percent_21", "victimization_of_ciolent_crimes_percent_21")
+             ),
+             "loneliness" = list(
+               urban = c("odor_nuisance_percent_21", "percentage_rental_properties_20", "percentage_of_sports_associations_member_ship_17", "DistanceToTrainStationAllTypes_105", "DistanceToGPPost_9", "AttractionWithin10Km_126", "DistanceToMuseum_110", "PrimarySchoolWithin1Km_61"),
+               social = c("percentage_who_have_difficulty_making_ends_meet_20", "persentage_smoke_20", "married_20", "percentage_who_provide_informal_care_20", "percentage_drink_no_alcoho_or_one_glass_per_day_20", "living_together_without_children_households_20", "people_hardly_know_each_other_percent_21", "percentage_who_do_volunteer_work_20", "percentage_people_with_pgysical_disabilities_20", "victimization_of_ciolent_crimes_percent_21", "non_working_job_seekers_total_17", "niusance_from_harassing_people_on_te_street_percent_21")
+             ),
+             "health" = list(
+               urban = c("I_live_in_a_nice_neghborhood_where_people_help_each_other_21", "average_valie_of_homes_in_general_20", "satisfied_with_maintenance_of_sidewalks_streets_and_squares_percent_21"),
+               social = c("percentage_who_do_volunteer_work_20", "percentage_drink_no_alcoho_or_one_glass_per_day_20", "education_level_low_20")
+             ),
+             "safety" = list(
+               urban = c("percentage_of_sports_associations_member_ship_17", "satisfied_with_maintenance_of_sidewalks_streets_and_squares_percent_21", "rubbish_on_street_21", "odor_nuisance_percent_21", "environmental_nuisance_21", "victimization_of_property_crimes_percent_21", "DistanceToCinema_104", "nuisance_from_catering_establishments_percent_21", "average_private_cars_per_adress_21"),
+               social = c("nuisance_from_local_residents_percent_21", "satisfied_with_municipality_for_quality_of_life_and_safety_21", "non_working_job_seekers_total_17", "children_in_childcare_19", "satisfied_with_maintencance_public_gardens_and_parks_percent_21", "drig_trafficking_percent_21", "confused_persons_percent_21", "social_nuisance_percent_21", "percentage_high_risk_for_anxiety_disorder_or_depression_20", "percentage_who_have_difficulty_making_ends_meet_20", "drug_use_percent_21", "education_level_secondary_21", "DepartmentStoreWithin5Km_33")
+             ),
+             NULL
+      )
+    } else {
+      list(
+        urban = c("offices_percent", "neighborhood_clean_percent"),
+        social = c("neighborhood_engagement_1_10", "discrimination_percent", "group_interaction_1_10", "people_help_each_other_1_10")
+      )
+    }
+  })
+  
+  current_indicator <- reactive({
+    if (input$city == "The Hague") {
+      req(input$indicator)
+      current_city()$predicted_scores[[input$indicator]]
+    } else {
+      current_city()$predicted_scores$pleasant_living
+    }
+  })
+  
+  # Reactive value to store the selected neighborhood
+  selected_neighborhood <- reactiveVal()
+  
+  observeEvent(input$map_marker_click, {
+    click <- input$map_marker_click
+    selected_neighborhood(click$id)
+  })
+  
+  output$dynamic_tabs <- renderUI({
+    features <- indicator_features()
+    req(features)
+    neighborhood_data <- current_indicator()
+    
+    if (is.null(selected_neighborhood())) {
+      tabsetPanel(
+        tabPanel("Urban Predictors", lapply(features$urban, function(col) {
+          sliderInput(col, label_mapping[[col]], min = min(neighborhood_data[[col]], na.rm = TRUE), max = max(neighborhood_data[[col]], na.rm = TRUE), value = mean(neighborhood_data[[col]], na.rm = TRUE), step = (max(neighborhood_data[[col]], na.rm = TRUE) - min(neighborhood_data[[col]], na.rm = TRUE)) / 100)
+        })),
+        tabPanel("Social Predictors", lapply(features$social, function(col) {
+          sliderInput(col, label_mapping[[col]], min = min(neighborhood_data[[col]], na.rm = TRUE), max = max(neighborhood_data[[col]], na.rm = TRUE), value = mean(neighborhood_data[[col]], na.rm = TRUE), step = (max(neighborhood_data[[col]], na.rm = TRUE) - min(neighborhood_data[[col]], na.rm = TRUE)) / 100)
+        }))
+      )
+    } else {
+      selected_data <- neighborhood_data %>% filter(Neighborhoods == selected_neighborhood())
+      tabsetPanel(
+        tabPanel("Urban Predictors", lapply(features$urban, function(col) {
+          sliderInput(col, label_mapping[[col]], min = min(neighborhood_data[[col]], na.rm = TRUE), max = max(neighborhood_data[[col]], na.rm = TRUE), value = selected_data[[col]], step = (max(neighborhood_data[[col]], na.rm = TRUE) - min(neighborhood_data[[col]], na.rm = TRUE)) / 100)
+        })),
+        tabPanel("Social Predictors", lapply(features$social, function(col) {
+          sliderInput(col, label_mapping[[col]], min = min(neighborhood_data[[col]], na.rm = TRUE), max = max(neighborhood_data[[col]], na.rm = TRUE), value = selected_data[[col]], step = (max(neighborhood_data[[col]], na.rm = TRUE) - min(neighborhood_data[[col]], na.rm = TRUE)) / 100)
+        }))
+      )
+    }
+  })
+  
+  predict_scores <- reactive({
+    data <- current_indicator()
+    model <- if (input$city == "The Hague") {
+      current_city()$models[[input$indicator]]
+    } else {
+      current_city()$models$pleasant_living
+    }
+    features <- indicator_features()
+    req(features)
+    
+    # Only update the selected neighborhood's data
+    if (!is.null(selected_neighborhood())) {
+      selected_data <- data[data$Neighborhoods == selected_neighborhood(), ]
+      for (col in features$urban) {
+        req(input[[col]])
+        selected_data[[col]] <- input[[col]]
+      }
+      for (col in features$social) {
+        req(input[[col]])
+        selected_data[[col]] <- input[[col]]
+      }
+      selected_data[[paste0(if (input$city == "The Hague") input$indicator else "pleasant_living", "_score")]] <- predict(model, selected_data)
+      data[data$Neighborhoods == selected_neighborhood(), ] <- selected_data
+    }
+    data
+  })
+  
+  output$map <- renderLeaflet({
+    data <- current_indicator()
+    indicator <- if (input$city == "The Hague") input$indicator else "pleasant_living"
+    
+    # Define the color palette for the indicator
+    pal <- if (indicator == "loneliness") {
+      colorNumeric(palette = rev(brewer.pal(11, "RdYlGn")), domain = data[[paste0(indicator, "_score")]])
+    } else {
+      colorNumeric(palette = "RdYlGn", domain = data[[paste0(indicator, "_score")]])
+    }
+    
+    leaflet(data) %>%
+      addTiles() %>%
+      addCircleMarkers(
+        lat = ~NeighborhoodLatitude,
+        lng = ~NeighborhoodLongitude,
+        fillColor = ~pal(data[[paste0(indicator, "_score")]]),
+        weight = 2,
+        opacity = 1,
+        color = "white",
+        dashArray = "3",
+        fillOpacity = 0.7,
+        label = ~paste(Neighborhoods, ": ", round(data[[paste0(indicator, "_score")]], 2)),
+        layerId = ~Neighborhoods  # Add layerId to track clicked neighborhood
+      ) %>%
+      addLegend(pal = pal, values = ~data[[paste0(indicator, "_score")]], opacity = 0.7, title = paste(indicator, "Score"), position = "bottomright")
+  })
+  
+  observe({
+    data <- predict_scores()
+    indicator <- if (input$city == "The Hague") input$indicator else "pleasant_living"
+    
+    # Define the color palette for the indicator
+    pal <- if (indicator == "loneliness") {
+      colorNumeric(palette = rev(brewer.pal(11, "RdYlGn")), domain = data[[paste0(indicator, "_score")]])
+    } else {
+      colorNumeric(palette = "RdYlGn", domain = data[[paste0(indicator, "_score")]])
+    }
+    
+    leafletProxy("map", data = data) %>%
+      clearShapes() %>%
+      clearControls() %>%
+      addCircleMarkers(
+        lat = ~NeighborhoodLatitude,
+        lng = ~NeighborhoodLongitude,
+        radius = 10,
+        fillColor = ~pal(data[[paste0(indicator, "_score")]]),
+        weight = 1,
+        opacity = 1,
+        color = "black",
+        fillOpacity = 0.85,
+        label = ~paste(Neighborhoods, ": ", round(data[[paste0(indicator, "_score")]], 2)),
+        layerId = ~Neighborhoods  # Add layerId to track clicked neighborhood
+      ) %>%
+      addLegend(pal = pal, values = ~data[[paste0(indicator, "_score")]], opacity = 0.7, title = paste(indicator, "Score"), position = "bottomright")
+  })
+  
+  observeEvent(input$reset, {
+    selected_neighborhood(NULL)  # Reset selected neighborhood
+    features <- indicator_features()
+    lapply(features$urban, function(col) {
+      updateSliderInput(session, col, value = mean(current_indicator()[[col]], na.rm = TRUE))
+    })
+    lapply(features$social, function(col) {
+      updateSliderInput(session, col, value = mean(current_indicator()[[col]], na.rm = TRUE))
+    })
+  })
+}
+
+shinyApp(ui, server)
 
