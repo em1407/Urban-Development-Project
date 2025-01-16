@@ -1,6 +1,6 @@
 # Urban-Development-Project
 
-    ## For this project my team and I aimed to provide an Urban Development company with a virtual product that could help them making decisions about which urban element to include in newly constructed Dutch neighborhoods in order to increase the wellbeing of the citizens. The output of this project was a Shiny App that showed how certain urban design choices affect social indicators such as the happiness and social cohesion of residents. Below you can see the main steps taken to reach the result:
+## For this project my team and I aimed to provide an Urban Development company with a virtual product that could help them making decisions about which urban element to include in newly constructed Dutch neighborhoods in order to increase the wellbeing of the citizens. The output of this project was a Shiny App that showed how certain urban design choices affect social indicators such as the happiness and social cohesion of residents. Below you can see the main steps taken to reach the result:
     
 ## Data Collection - Data was collected from several publicly available sources and cleaned then given the dimension of the dataset, non-relevant columns had to be deleted to avoid multicollinearity issues. In order to do this a correlation analysis was performed
 
