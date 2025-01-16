@@ -1,7 +1,7 @@
 # Urban-Development-Project
 
-## For this project my team and I aimed to provide an Urban Development company with a virtual product that could help them making-decisions about which urban element to include in newly constructed Dutch neighbourhoods in order to increase the wellbeing of the citizens. The output of this project was a Shiny App that showed how certain urban design choices affect social indicators such as the happiness and social cohesion of residents. Below you can see the main steps taken to reach the result:
-
+    ## For this project my team and I aimed to provide an Urban Development company with a virtual product that could help them making decisions about which urban element to include in newly constructed Dutch neighborhoods in order to increase the wellbeing of the citizens. The output of this project was a Shiny App that showed how certain urban design choices affect social indicators such as the happiness and social cohesion of residents. Below you can see the main steps taken to reach the result:
+    
 ## Data Collection - Data was collected from several publicly available sources and cleaned then given the dimension of the dataset, non-relevant columns had to be deleted to avoid multicollinearity issues. In order to do this a correlation analysis was performed
 
 
@@ -43,7 +43,7 @@
      }
      }
 
-## Consequently Missing values were handled 
+## Consequently missing values were handled 
     # Search each column for it's skewness, and then for being an integer
     variable
     for (i in 1:ncol(data)) {
@@ -93,7 +93,7 @@
     xlab = "Target Variable", col = "gray", xlim = c(0, 10)) # Adjust xlim with
     both scale edges
 
-## Random Forest for feature selection and metrics
+## Random Forest for feature selection was performed and metrics checked
         # Fit a Random Forest model
          rffeatures <- randomForest(train_data$Social_cohesion_21 ~ ., data =
         train_data, ntree = 500, mtry = 5, importance = TRUE)
@@ -124,7 +124,7 @@
          accuraciesrf[i] <- Accuracy(round(predictionsrf[i],1),
         round(test_data$Social_cohesion_21, 1))
         }
-## Subset data - take the features that you used in the model. When you rerun the code you will gradually lower the number of features and keep the top picks based on the results
+        #Subset data - take the features that you used in the model. When you rerun the code you will gradually lower the           number of features and keep the top picks based on the results
         column_refinement <- match(rownames(importances), names(datafull))
         data_fixed <- datafull[, column_refinement]
         # Add target variable to the set
@@ -147,7 +147,7 @@
         # Define the control using a random forest selection function
         control <- rfeControl(functions = rfFuncs, # random forest
          method = "repeatedcv", # repeated cv
-## Lastly, from the Variables the model automatically suggests we chose manually the top 50
+## Lastly, from the variables that the model automatically suggested we chose manually the top 50 variables
 
 ## We then tried different ML models
     #RANDOM FOREST
@@ -252,7 +252,7 @@
         round(test_data$Social_cohesion_21, 1))
         }
 
-## Lastly we summarised the metrics of all the models to choose the best performing one
+## Lastly we summarised the metrics of all the models to choose the best-performing one
 
         results <- data.frame(
          MAE = c(round(maerf, 3), round(maereg, 3), round(maesvr, 3),
